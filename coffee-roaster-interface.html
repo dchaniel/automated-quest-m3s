@@ -1,0 +1,374 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coffee Roaster Control</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8 text-center">Coffee Roaster Control</h1>
+        
+        <div class="flex flex-col md:flex-row gap-8">
+            <!-- Left column -->
+            <div class="w-full md:w-1/4 space-y-8">
+                <!-- Setpoints -->
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-4">Setpoints</h2>
+                    <div id="setpointInputs" class="space-y-4"></div>
+                    <div class="mt-4 space-x-4">
+                        <button onclick="addSetpoint(0, 0)" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Setpoint</button>
+                        <button onclick="initDefaultSetpoints()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Reset to Default</button>
+                    </div>
+                </div>
+                
+                <!-- Current Values -->
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-4">Current Values</h2>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="font-medium">Current Temperature:</p>
+                            <p id="currentTemp" class="text-2xl font-bold">0 °C</p>
+                        </div>
+                        <div>
+                            <p class="font-medium">Target Temperature:</p>
+                            <p id="currentTargetTemp" class="text-2xl font-bold">0 °C</p>
+                        </div>
+                        <div>
+                            <p class="font-medium">Fan Speed:</p>
+                            <p id="currentFanSpeed" class="text-2xl font-bold">0</p>
+                        </div>
+                        <div>
+                            <p class="font-medium">Heating Power:</p>
+                            <p id="currentHeatingPower" class="text-2xl font-bold">0</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Past Roasts -->
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-4">Past Roasts</h2>
+                    <select id="pastRoasts" onchange="loadPastRoast()" class="w-full p-2 border rounded">
+                        <option value="">Select a past roast</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Right column (Graph and Buttons) -->
+            <div class="w-full md:w-3/4 space-y-8">
+                <div class="bg-white p-6 rounded-lg shadow-md" style="height: calc(100vh - 16rem);">
+                    <canvas id="controlChart"></canvas>
+                </div>
+                
+                <!-- Start/Stop Buttons -->
+                <div class="flex justify-center space-x-4">
+                    <button id="startRoastBtn" onclick="startRoast()" class="bg-green-500 text-white px-6 py-2 rounded hover:bg-green-600">Start Roast</button>
+                    <button id="stopRoastBtn" onclick="stopRoast()" class="bg-red-500 text-white px-6 py-2 rounded hover:bg-red-600 hidden">Stop Roast</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Toast -->
+        <div id="toast" class="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none">
+            <p id="toastMessage"></p>
+            <button onclick="dismissToast()" class="absolute top-1 right-1 text-white hover:text-gray-200">&times;</button>
+        </div>
+    </div>
+
+    <script>
+        let controlChart;
+        let socket;
+        let isRoasting = false;
+        let audioContext;
+        let roastEndTime;
+
+        function addSetpoint(time, temperature) {
+            const setpointInputs = document.getElementById('setpointInputs');
+            const index = setpointInputs.children.length;
+            const setpointDiv = document.createElement('div');
+            setpointDiv.className = 'flex space-x-4 mb-2';
+            setpointDiv.innerHTML = `
+                <input type="number" id="time${index}" min="0" step="1" value="${time}" placeholder="Time (s)" class="w-1/2 p-2 border rounded">
+                <input type="number" id="temp${index}" min="0" step="1" value="${temperature}" placeholder="Temperature (°C)" class="w-1/2 p-2 border rounded">
+            `;
+            setpointInputs.appendChild(setpointDiv);
+        }
+
+        function getSetpoints() {
+            const setpoints = [];
+            const setpointInputs = document.getElementById('setpointInputs');
+            for (let i = 0; i < setpointInputs.children.length; i++) {
+                const time = document.getElementById(`time${i}`).value;
+                const temp = document.getElementById(`temp${i}`).value;
+                if (time && temp) {
+                    setpoints.push({time: parseFloat(time), temperature: parseFloat(temp)});
+                }
+            }
+            return setpoints;
+        }
+
+        function initDefaultSetpoints() {
+            // Clear existing setpoints
+            document.getElementById('setpointInputs').innerHTML = '';
+
+            // Add default setpoints
+            addSetpoint(0, 400);
+            addSetpoint(45, 167);
+            addSetpoint(312, 339);  // 5 minutes 12 seconds
+            addSetpoint(454, 386);  // 7 minutes 34 seconds
+            addSetpoint(548, 405);  // 9 minutes 8 seconds
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('controlChart').getContext('2d');
+
+            controlChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Temperature',
+                        data: [],
+                        borderColor: 'rgb(54, 162, 235)',
+                        yAxisID: 'y1',
+                        tension: 0.1
+                    }, {
+                        label: 'Target Temperature',
+                        data: [],
+                        borderColor: 'rgb(54, 162, 235)',
+                        borderDash: [5, 5],
+                        yAxisID: 'y1',
+                        tension: 0.1
+                    }, {
+                        label: 'Fan Speed',
+                        data: [],
+                        borderColor: 'rgb(75, 192, 192)',
+                        yAxisID: 'y2',
+                        tension: 0.1
+                    }, {
+                        label: 'Heating Power',
+                        data: [],
+                        borderColor: 'rgb(255, 159, 64)',
+                        yAxisID: 'y2',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            title: {
+                                display: true,
+                                text: 'Time (s)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Temperature (°C)'
+                            }
+                        },
+                        y2: {
+                            type: 'linear',
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Fan Speed / Heating Power'
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function startRoast() {
+            const setpoints = getSetpoints();
+            if (setpoints.length < 2) {
+                alert("Please add at least two setpoints");
+                return;
+            }
+            fetch('/start_roast', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ setpoints: setpoints }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log(data.message);
+                if (data.message === "Roast started") {
+                    isRoasting = true;
+                    updateRoastButtons();
+                    plotRoastProfile(data.profile);
+                    roastEndTime = data.profile.time[data.profile.time.length - 1];
+                    initWebSocket();
+                }
+            });
+        }
+
+        function plotRoastProfile(profile) {
+            controlChart.data.labels = profile.time;
+            controlChart.data.datasets[1].data = profile.target_temperature.map((temp, index) => ({x: profile.time[index], y: temp}));
+            controlChart.options.scales.x.max = profile.time[profile.time.length - 1];
+            controlChart.update();
+        }
+
+        function stopRoast() {
+            fetch('/stop_roast')
+            .then(response => response.json())
+            .then(data => {
+                console.log('Roast stopped:', data);
+                isRoasting = false;
+                updateRoastButtons();
+                if (socket) {
+                    socket.close();
+                }
+                loadPastRoasts();
+            });
+        }
+
+        function updateRoastButtons() {
+            document.getElementById('startRoastBtn').classList.toggle('hidden', isRoasting);
+            document.getElementById('stopRoastBtn').classList.toggle('hidden', !isRoasting);
+        }
+
+        function initWebSocket() {
+            socket = new WebSocket(`ws://${window.location.host}/ws`);
+            let startTime = null;
+
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.roast_finished) {
+                    isRoasting = false;
+                    updateRoastButtons();
+                    showToast("Roast finished!");
+                    playAlarm();
+                    return;
+                }
+
+                if (!startTime) {
+                    startTime = Date.now();
+                }
+                const elapsedTime = (Date.now() - startTime) / 1000;
+
+                updateChart(elapsedTime, data);
+                updateDisplayedValues(data);
+
+                // Check if we've reached or exceeded the roast end time
+                if (elapsedTime >= roastEndTime) {
+                    controlChart.options.scales.x.max = elapsedTime;
+                    controlChart.update();
+                }
+            };
+
+            socket.onclose = function(event) {
+                isRoasting = false;
+                updateRoastButtons();
+            };
+        }
+
+        function updateChart(elapsedTime, data) {
+            controlChart.data.datasets[0].data.push({x: elapsedTime, y: data.temperature});
+            controlChart.data.datasets[2].data.push({x: elapsedTime, y: data.fan_speed});
+            controlChart.data.datasets[3].data.push({x: elapsedTime, y: data.heating_power});
+
+            controlChart.update();
+        }
+
+        function updateDisplayedValues(data) {
+            document.getElementById('currentTemp').innerText = `${data.temperature.toFixed(2)} °C`;
+            document.getElementById('currentTargetTemp').innerText = `${data.target_temperature.toFixed(2)} °C`;
+            document.getElementById('currentFanSpeed').innerText = data.fan_speed.toFixed(2);
+            document.getElementById('currentHeatingPower').innerText = data.heating_power.toFixed(2);
+        }
+
+        function loadPastRoasts() {
+            fetch('/roast_logs')
+            .then(response => response.json())
+            .then(data => {
+                const select = document.getElementById('pastRoasts');
+                select.innerHTML = '<option value="">Select a past roast</option>';
+                data.logs.forEach(log => {
+                    const option = document.createElement('option');
+                    option.value = log;
+                    option.textContent = log.replace('roast_log_', '').replace('.csv', '');
+                    select.appendChild(option);
+                });
+            });
+        }
+
+        function loadPastRoast() {
+            const selectedLog = document.getElementById('pastRoasts').value;
+            if (!selectedLog) return;
+
+            fetch(`/roast_log/${selectedLog}`)
+            .then(response => response.json())
+            .then(data => {
+                controlChart.data.labels = [];
+                controlChart.data.datasets.forEach(dataset => dataset.data = []);
+
+                data.data.forEach((row, index) => {
+                    controlChart.data.labels.push(index);
+                    controlChart.data.datasets[0].data.push(parseFloat(row.Temperature));
+                    controlChart.data.datasets[1].data.push(parseFloat(row['Target Temperature']));
+                    controlChart.data.datasets[2].data.push(parseFloat(row['Fan Speed']));
+                    controlChart.data.datasets[3].data.push(parseFloat(row['Heating Power']));
+                });
+
+                controlChart.update();
+            });
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toastMessage');
+            toastMessage.textContent = message;
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            toast.classList.add('opacity-100');
+            setTimeout(dismissToast, 5000); // Auto-dismiss after 5 seconds
+        }
+
+        function dismissToast() {
+            const toast = document.getElementById('toast');
+            toast.classList.remove('opacity-100');
+            toast.classList.add('opacity-0', 'pointer-events-none');
+        }
+
+        function playAlarm() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 note
+            gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 1);
+            oscillator.stop(audioContext.currentTime + 1);
+        }
+
+        initChart();
+        loadPastRoasts();
+        updateRoastButtons();
+        initDefaultSetpoints();  // Initialize with default setpoints
+    </script>
+</body>
+</html>
