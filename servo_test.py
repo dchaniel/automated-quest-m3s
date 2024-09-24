@@ -9,10 +9,19 @@ servo_channel = 0  # Assuming we're using the first servo channel
 servo.setAccel(servo_channel, 4)  # Set servo acceleration to 4
 servo.setSpeed(servo_channel, 10)  # Set servo speed to 10
 
-# Define servo range
-min_pulse = 4000  # Minimum pulse width
-max_pulse = 8000  # Maximum pulse width
-step = 100  # Step size for the loop
+# Servo Configuration
+SERVO_CHANNEL = 0
+SERVO_ACCELERATION = 4
+SERVO_SPEED = 10
+MIN_PULSE = 4000
+MAX_PULSE = 8000
+STEP_SIZE = 100
+
+servo = maestro.Controller()
+
+# Set acceleration and speed
+servo.setAccel(SERVO_CHANNEL, SERVO_ACCELERATION)
+servo.setSpeed(SERVO_CHANNEL, SERVO_SPEED)
 
 # Lists to store data for plotting
 desired_positions = []
