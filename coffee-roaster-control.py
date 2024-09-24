@@ -127,33 +127,11 @@ async def get():
 # Add these new global variables
 is_preheating = False
 preheat_target_temperature = 0
+is_roast_completed = False
 
-# Add a new endpoint for preheating
-@app.post("/start_preheat")
-async def start_preheat():
-    global is_preheating, preheat_target_temperature, roast_settings
-    if is_roasting:
-        return {"message": "Cannot start preheating while roasting"}
-    
-    # Get the first setpoint temperature
-    first_setpoint = roast_settings.setpoints[0] if roast_settings.setpoints else None
-    if not first_setpoint:
-        return {"message": "No setpoints defined"}
-    
-    preheat_target_temperature = first_setpoint.temperature
-    is_preheating = True
-    return {"message": f"Preheating started to {preheat_target_temperature}°C"}
-
-@app.get("/stop_preheat")
-async def stop_preheat():
-    global is_preheating
-    is_preheating = False
-    return {"message": "Preheating stopped"}
-
-# Modify the websocket_endpoint function
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    global is_roasting, is_preheating, roast_start_time, preheat_target_temperature
+    global is_roasting, is_preheating, roast_start_time, preheat_target_temperature, is_roast_completed
     await websocket.accept()
     try:
         while True:
@@ -186,12 +164,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     "target_temperature": target_temperature,
                     "fan_speed": fan_speed,
                     "heating_power": heating_power,
-                    "is_preheating": is_preheating
+                    "is_preheating": is_preheating,
+                    "is_roasting": is_roasting,
+                    "is_roast_completed": is_roast_completed
                 })
                 
                 # Check if the roast should end (only if we're actually roasting)
                 if is_roasting and current_time >= roast_settings.setpoints[-1].time and bean_temperature >= target_temperature:
                     is_roasting = False
+                    is_roast_completed = True
                     save_roast_data()
                     await websocket.send_json({"roast_finished": True})
             
@@ -201,15 +182,32 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         await websocket.close()
 
-# Modify the start_roast function
+@app.post("/start_preheat")
+async def start_preheat():
+    global is_preheating, preheat_target_temperature, roast_settings, is_roast_completed
+    if is_roasting:
+        return {"message": "Cannot start preheating while roasting"}
+    
+    # Get the first setpoint temperature
+    first_setpoint = roast_settings.setpoints[0] if roast_settings.setpoints else None
+    if not first_setpoint:
+        return {"message": "No setpoints defined"}
+    
+    preheat_target_temperature = first_setpoint.temperature
+    is_preheating = True
+    is_roast_completed = False
+    return {"message": f"Preheating started to {preheat_target_temperature}°C"}
+
 @app.post("/start_roast")
 async def start_roast(settings: RoastSettings):
     global roast_settings, is_roasting, is_preheating, roast_data, roast_start_time
     if is_roasting:
         return {"message": "A roast is already in progress"}
+    if not is_preheating:
+        return {"message": "Please preheat before starting the roast"}
     roast_settings = settings
     is_roasting = True
-    is_preheating = False  # Stop preheating when starting a roast
+    is_preheating = False
     roast_data = []
     roast_start_time = datetime.now()
     
@@ -228,10 +226,21 @@ async def start_roast(settings: RoastSettings):
 
 @app.get("/stop_roast")
 async def stop_roast():
-    global is_roasting
+    global is_roasting, is_roast_completed
+    if not is_roasting:
+        return {"message": "No roast in progress"}
     is_roasting = False
+    is_roast_completed = True
     save_roast_data()
     return {"message": "Roast stopped"}
+
+@app.get("/reset_roast")
+async def reset_roast():
+    global is_roasting, is_preheating, is_roast_completed
+    is_roasting = False
+    is_preheating = False
+    is_roast_completed = False
+    return {"message": "Roast reset, ready for preheating"}
 
 def save_roast_data():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

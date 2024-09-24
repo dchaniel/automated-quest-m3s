@@ -39,7 +39,7 @@
             <h1 class="text-4xl font-bold text-shadow-green text-terminal-green">Roaster Command Center</h1>
             <div>
                 <button id="preheatBtn" onclick="togglePreheat()" class="bg-terminal-darkgreen hover:bg-terminal-green hover:text-terminal-black transition-colors duration-300 py-2 px-4 border border-terminal-green">[ Preheat ]</button>
-                <button id="startRoastBtn" onclick="startRoast()" class="bg-terminal-darkgreen hover:bg-terminal-green hover:text-terminal-black transition-colors duration-300 py-2 px-4 border border-terminal-green">[ Start Roast ]</button>
+                <button id="startRoastBtn" onclick="startRoast()" class="bg-terminal-darkgreen hover:bg-terminal-green hover:text-terminal-black transition-colors duration-300 py-2 px-4 border border-terminal-green hidden">[ Start Roast ]</button>
                 <button id="stopRoastBtn" onclick="stopRoast()" class="bg-terminal-darkgreen hover:bg-terminal-green hover:text-terminal-black transition-colors duration-300 py-2 px-4 border border-terminal-green hidden">[ Stop Roast ]</button>
             </div>
         </div>
@@ -189,7 +189,7 @@
 
         function updateButtons() {
             document.getElementById('preheatBtn').textContent = isPreheating ? '[ Stop Preheat ]' : '[ Preheat ]';
-            document.getElementById('startRoastBtn').classList.toggle('hidden', isPreheating || isRoasting);
+            document.getElementById('startRoastBtn').classList.toggle('hidden', !isPreheating || isRoasting);
             document.getElementById('stopRoastBtn').classList.toggle('hidden', !isRoasting);
         }
 
