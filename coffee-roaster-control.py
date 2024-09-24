@@ -92,8 +92,16 @@ class RoastSettings(BaseModel):
     setpoints: List[SetPoint]
 
     def get_target_temperature(self, current_time):
+        if not self.setpoints:
+            raise ValueError("No setpoints defined. Cannot calculate target temperature.")
+        
         times = [sp.time for sp in self.setpoints]
         temperatures = [sp.temperature for sp in self.setpoints]
+        
+        if len(self.setpoints) == 1:
+            # If there's only one setpoint, return its temperature
+            return float(temperatures[0])
+        
         cs = CubicSpline(times, temperatures)
         return float(cs(current_time))
 
