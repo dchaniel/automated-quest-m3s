@@ -1,0 +1,27 @@
+{
+  "light roast": {
+    "name": "light roast",
+    "setpoints": [
+      {
+        "time": 0,
+        "temperature": 400
+      },
+      {
+        "time": 45,
+        "temperature": 167
+      },
+      {
+        "time": 312,
+        "temperature": 339
+      },
+      {
+        "time": 454,
+        "temperature": 386
+      },
+      {
+        "time": 548,
+        "temperature": 405
+      }
+    ]
+  }
+}
