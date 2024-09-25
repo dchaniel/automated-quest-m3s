@@ -30,7 +30,7 @@ timestamps = []
 start_time = time.time()
 
 # Move servo from min to max
-for pulse in range(min_pulse, max_pulse + 1, step):
+for pulse in range(MIN_PULSE, MAX_PULSE + 1, STEP_SIZE):
     servo.setTarget(servo_channel, pulse)
     print(f"Setting servo position to: {pulse}")
     

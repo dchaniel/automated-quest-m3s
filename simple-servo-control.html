@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Servo Control</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .servo-control { margin-bottom: 20px; }
+        #plotDiv { width: 100%; height: 500px; }
+    </style>
+</head>
+<body>
+    <h1>Servo Control</h1>
+    
+    <div class="servo-control">
+        <h2>Wind-up Servo</h2>
+        <p>Current Position: <span id="wind-up-position"></span></p>
+    </div>
+
+    <div class="servo-control">
+        <h2>Power Servo</h2>
+        <p>Current Position: <span id="power-position"></span></p>
+    </div>
+
+    <div class="servo-control">
+        <h2>Fan Servo</h2>
+        <p>Current Position: <span id="fan-position"></span></p>
+    </div>
+
+    <div id="plotDiv"></div>
+
+    <script>
+        let ws = new WebSocket("ws://" + window.location.host + "/ws");
+        let profile;
+        let actualData = {
+            time: [],
+            wind_up: [],
+            power: [],
+            fan: []
+        };
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.profile) {
+                profile = data.profile;
+                initializePlot();
+            } else {
+                updatePositions(data);
+                updatePlot(data);
+            }
+        };
+
+        function initializePlot() {
+            const powerDesired = {
+                x: profile.time,
+                y: profile.power,
+                mode: 'lines',
+                name: 'Power Desired'
+            };
+            const fanDesired = {
+                x: profile.time,
+                y: profile.fan,
+                mode: 'lines',
+                name: 'Fan Desired'
+            };
+            Plotly.newPlot('plotDiv', [powerDesired, fanDesired], {
+                title: 'Servo Positions',
+                xaxis: { title: 'Time (s)' },
+                yaxis: { title: 'Position' }
+            });
+        }
+
+        function updatePositions(data) {
+            document.getElementById('wind-up-position').textContent = data.wind_up;
+            document.getElementById('power-position').textContent = data.power;
+            document.getElementById('fan-position').textContent = data.fan;
+        }
+
+        function updatePlot(data) {
+            actualData.time.push(data.time);
+            actualData.wind_up.push(data.wind_up);
+            actualData.power.push(data.power);
+            actualData.fan.push(data.fan);
+
+            // Keep only the last 1000 points
+            if (actualData.time.length > 1000) {
+                actualData.time.shift();
+                actualData.wind_up.shift();
+                actualData.power.shift();
+                actualData.fan.shift();
+            }
+
+            Plotly.update('plotDiv', {
+                x: [null, null, actualData.time, actualData.time, actualData.time],
+                y: [null, null, actualData.wind_up, actualData.power, actualData.fan]
+            }, {}, [0, 1, 2, 3, 4]);
+        }
+    </script>
+</body>
+</html>
